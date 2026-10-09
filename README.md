@@ -2,7 +2,7 @@
 
 An interactive, browser-based simulator of a **leaky integrate-and-fire (LIF) neuron**, the basic building block of spiking neural networks and neuromorphic computing.
 
-**Live demo:** https://soumen-apparium.github.io/lif-neuron-playground/
+**Live demo:** https://spiyk.github.io/lif-neuron-playground/
 
 The simulator needs no installation, build step or account. It runs in any modern browser, including on older laptops and phones.
 
