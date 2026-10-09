@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIF Neuron Playground</title>
+<style>
+  :root {
+    --bg: #f4f6f5;
+    --text: #1c2622;
+    --muted: #5f6e68;
+    --card: #ffffff;
+    --border: #d5ded9;
+    --volt: #1b6b5a;
+    --thresh: #c2410c;
+    --spike: #7c3aed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1714;
+      --text: #e6efeb;
+      --muted: #93a69d;
+      --card: #17221e;
+      --border: #2a3a34;
+      --volt: #4fd1b0;
+      --thresh: #fb923c;
+      --spike: #a78bfa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Georgia, serif;
+    line-height: 1.5;
+  }
+  main { max-width: 800px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { margin-bottom: 4px; }
+  .intro { color: var(--muted); margin-top: 0; }
+  .box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  canvas { width: 100%; height: 260px; display: block; }
+  .legend, .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-top: 10px;
+    font-family: sans-serif;
+    font-size: 14px;
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+    background: currentColor;
+  }
+  .legend .v { color: var(--volt); }
+  .legend .t { color: var(--thresh); }
+  .legend .s { color: var(--spike); }
+  #info { margin-left: auto; color: var(--muted); }
+  .sliders { display: grid; gap: 16px; }
+  @media (min-width: 640px) { .sliders { grid-template-columns: repeat(3, 1fr); } }
+  label {
+    display: flex;
+    justify-content: space-between;
+    font-family: sans-serif;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  label span { color: var(--volt); }
+  input[type=range] { width: 100%; accent-color: var(--volt); }
+  small { display: block; color: var(--muted); font-size: 13px; }
+  button {
+    font: inherit;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--card);
+    color: var(--text);
+    cursor: pointer;
+  }
+  pre, code { background: var(--bg); border-radius: 4px; }
+  code { padding: 1px 4px; }
+  pre { padding: 10px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LIF Neuron Playground</h1>
+  <p class="intro">
+    A leaky integrate-and-fire neuron adds up incoming input, loses a little
+    charge every step, and fires a spike when it crosses a threshold.
+    Move the sliders and see what happens.
+  </p>
+
+  <div class="box">
+    <canvas id="plot"></canvas>
+    <div class="legend">
+      <span class="v">Membrane potential</span>
+      <span class="t">Threshold</span>
+      <span class="s">Spike</span>
+      <div id="info"></div>
+    </div>
+  </div>
+
+  <div class="box sliders">
+    <div>
+      <label for="input">Input current <span id="inputVal"></span></label>
+      <input id="input" type="range" min="0" max="0.5" step="0.005" value="0.12">
+      <small>Charge added each step. More input means more spikes.</small>
+    </div>
+    <div>
+      <label for="beta">Leak (beta) <span id="betaVal"></span></label>
+      <input id="beta" type="range" min="0.5" max="1" step="0.005" value="0.9">
+      <small>Share of charge kept each step. 1.0 means no leak.</small>
+    </div>
+    <div>
+      <label for="threshold">Threshold <span id="thresholdVal"></span></label>
+      <input id="threshold" type="range" min="0.2" max="2" step="0.05" value="1">
+      <small>Level that triggers a spike. Higher means fewer spikes.</small>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="buttons" style="margin-top:0">
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+      <button id="muteBtn">Turn input off for 30 steps</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>How it works</h2>
+    <p>On every time step the neuron does this:</p>
+<pre>v = beta * v + input;
+if (v >= threshold) {
+  spike = true;
+  v = 0;
+}</pre>
+    <p>
+      The neuron adds the input to <code>v</code>, keeps only a fraction
+      (<code>beta</code>) of what it had before, and resets to zero after it fires.
+    </p>
+    <p>
+      Try lowering the input until <code>input / (1 - beta)</code> is smaller than
+      the threshold. The leak then cancels the input and the neuron never fires.
+      That is why spiking neurons only react to strong or sustained signals, and
+      why neuromorphic chips can use so little power when nothing is happening.
+    </p>
+    <p>
+      This is a simplified version of the model used in snnTorch, Brian2 and Nengo.
+    </p>
+  </div>
+</main>
+
+<script>
+const MAX_POINTS = 300;
+
+const canvas = document.getElementById('plot');
+const ctx = canvas.getContext('2d');
+
+const inputSlider = document.getElementById('input');
+const betaSlider = document.getElementById('beta');
+const thresholdSlider = document.getElementById('threshold');
+const pauseBtn = document.getElementById('pauseBtn');
+
+let potentials = [];
+let spikes = [];
+let v = 0;
+let stepCount = 0;
+let paused = false;
+let muteSteps = 0;
+let lastTick = 0;
+
+function updateLabels() {
+  document.getElementById('inputVal').textContent = Number(inputSlider.value).toFixed(3);
+  document.getElementById('betaVal').textContent = Number(betaSlider.value).toFixed(3);
+  document.getElementById('thresholdVal').textContent = Number(thresholdSlider.value).toFixed(2);
+}
+
+function step() {
+  let current = Number(inputSlider.value);
+  if (muteSteps > 0) {
+    current = 0;
+    muteSteps--;
+  }
+
+  v = Number(betaSlider.value) * v + current;
+
+  let fired = false;
+  if (v >= Number(thresholdSlider.value)) {
+    fired = true;
+    v = 0;
+  }
+
+  potentials.push(v);
+  spikes.push(fired);
+  stepCount++;
+
+  if (potentials.length > MAX_POINTS) {
+    potentials.shift();
+    spikes.shift();
+  }
+}
+
+function getColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function draw() {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  const w = rect.width;
+  const h = rect.height;
+  const left = 30;
+  const top = 12;
+  const bottom = 26;
+  const threshold = Number(thresholdSlider.value);
+  const yMax = Math.max(2, threshold * 1.2);
+  const toY = (value) => h - bottom - (value / yMax) * (h - bottom - top);
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px sans-serif';
+  ctx.lineWidth = 1;
+
+  // grid lines
+  for (let g = 0; g <= yMax; g += 0.5) {
+    ctx.strokeStyle = getColor('--border');
+    ctx.beginPath();
+    ctx.moveTo(left, toY(g));
+    ctx.lineTo(w, toY(g));
+    ctx.stroke();
+    ctx.fillStyle = getColor('--muted');
+    ctx.fillText(g.toFixed(1), 2, toY(g) + 4);
+  }
+
+  // threshold
+  ctx.strokeStyle = getColor('--thresh');
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(left, toY(threshold));
+  ctx.lineTo(w, toY(threshold));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const dx = (w - left) / MAX_POINTS;
+
+  // membrane potential
+  ctx.strokeStyle = getColor('--volt');
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  potentials.forEach((p, i) => {
+    const x = left + i * dx;
+    if (i === 0) ctx.moveTo(x, toY(p));
+    else ctx.lineTo(x, toY(p));
+  });
+  ctx.stroke();
+
+  // spikes
+  ctx.strokeStyle = getColor('--spike');
+  spikes.forEach((fired, i) => {
+    if (!fired) return;
+    const x = left + i * dx;
+    ctx.beginPath();
+    ctx.moveTo(x, toY(0));
+    ctx.lineTo(x, top);
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = getColor('--muted');
+  ctx.fillText('time (steps)', w - 70, h - 8);
+
+  const visible = spikes.filter(Boolean).length;
+  document.getElementById('info').textContent = `Spikes shown: ${visible} | step ${stepCount}`;
+}
+
+function loop(time) {
+  if (!paused && time - lastTick > 30) {
+    step();
+    lastTick = time;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+[inputSlider, betaSlider, thresholdSlider].forEach((s) => {
+  s.addEventListener('input', updateLabels);
+});
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Play' : 'Pause';
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  potentials = [];
+  spikes = [];
+  v = 0;
+  stepCount = 0;
+  muteSteps = 0;
+});
+
+document.getElementById('muteBtn').addEventListener('click', () => {
+  muteSteps = 30;
+});
+
+updateLabels();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
